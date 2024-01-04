@@ -13,13 +13,13 @@ from torch.utils.tensorboard import SummaryWriter
 
 def main():
     # exp = 'Experiments/baseline_adam_lr0.005_dino_imagenet'
-    exp='Experiments/lora_2'
+    exp='Experiments/lora_mod_2'
     # trial_4 was changing the attention weights also with attention loss
     # trial 5 was not changing the attention weights with attention loss with a loss weight of 10^3
     # trial 6 was changing only the qkv values in attention blocks with attention loss with a loss weight of 10^3
     # trial 7 was not changing the attention weights with attention loss with a loss weight of 10^4
-    # lora - lora adaptation with attention loss of weight 10^4
-    # lora_2 - lora adaptation modified with attention loss of weight 10^4
+    # lora - lora adaptation with attention loss of weight 10^4 (lora_2 is rerun)
+    # lora_mod - lora adaptation modified with attention loss of weight 10^4 (lora_mod_2 is rerun)
     writer = SummaryWriter(exp)
     num_epochs = 15
     device = 'cuda'
@@ -138,7 +138,7 @@ def main():
                     writer.add_scalar('Loss_overall/val', loss.item(), step_val)
                     writer.add_scalar('Loss_output/val', loss_out.item(), step_val)
                     writer.add_scalar('Loss_attention/val', loss_att.item(), step_val)
-                    
+
                 step_val+=1
                 overall_output_1.append(output_1)
                 overall_output_2.append(output_2)
