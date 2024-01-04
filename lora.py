@@ -48,7 +48,6 @@ class _LoRA_qkv_timm(nn.Module):
         qkv[:, :, -self.dim :] += new_v
         return qkv
     
-
 class LoRA_ViT_timm(nn.Module):
     def __init__(self, vit_model: timm_ViT, r: int, num_classes: int = 0, lora_layer=None):
         super(LoRA_ViT_timm, self).__init__()
@@ -236,7 +235,6 @@ class _LoRA_qkv_timm_mod(nn.Module):
         qkv[:, :, -self.dim :] += new_v
         return qkv
     
-
 class LoRA_ViT_timm_mod(nn.Module):
     def __init__(self, vit_model: timm_ViT, r: int, num_classes: int = 0, lora_layer=None):
         super(LoRA_ViT_timm_mod, self).__init__()
@@ -387,9 +385,7 @@ class LoRA_ViT_timm_mod(nn.Module):
     #     x = self.proj_3d(x)
     #     return x
 
-    
-    
-    
+
 class _LoRA_qkv_timm_x(nn.Module):
     """In timm it is implemented as
     self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
