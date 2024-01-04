@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from model import Model
+from model import Model, LORAModel
 from utils_own import horizontal_flip, horizontal_flip_target, vertical_flip, vertical_flip_target
 from data import train_dataset, val_dataset
 import torch.nn.functional as F
@@ -13,16 +13,16 @@ from torch.utils.tensorboard import SummaryWriter
 
 def main():
     # exp = 'Experiments/baseline_adam_lr0.005_dino_imagenet'
-    exp='trial_7'
+    exp='Experiments/lora'
     # trial_4 was changing the attention weights also with attention loss
     # trial 5 was not changing the attention weights with attention loss with a loss weight of 10^3
     # trial 6 was changing only the qkv values in attention blocks with attention loss with a loss weight of 10^3
     # trial 7 was not changing the attention weights with attention loss with a loss weight of 10^4
-    # trial 8 was not changing the attention weights with attention loss with a loss weight of 10^2
     writer = SummaryWriter(exp)
     num_epochs = 15
     device = 'cuda'
-    model = Model().to(device)
+    # model = Model().to(device)
+    model = LORAModel().to(device)
     train_data = train_dataset()
     val_data = val_dataset()
     train_dataloader = DataLoader(train_data, batch_size = 32, shuffle = True)
@@ -36,8 +36,8 @@ def main():
     resume_epochs = 0
     attn_loss_weight = 10**4
 
-    if resume == True:
-        model.load_state_dict(torch.load(f'{exp}/checkpoint_{resume_epochs}.pth')['model'])
+    if resume:
+        model.load_model(f'{exp}', resume_epochs)
 
     for epoch in range(resume_epochs+1, num_epochs):
         print(f'EPOCH {epoch}')
@@ -103,7 +103,7 @@ def main():
         writer.add_scalar('Output_2/f1_train', f1, epoch)
         writer.add_scalar('Output_2/accuracy_train', acc, epoch)
         
-        torch.save({'model':model.state_dict(),'epoch':epoch+1},f'{exp}/checkpoint_{epoch}.pth')
+        model.save_model(epoch,f'{exp}')
                
 
 
