@@ -13,11 +13,13 @@ from torch.utils.tensorboard import SummaryWriter
 
 def main():
     # exp = 'Experiments/baseline_adam_lr0.005_dino_imagenet'
-    exp='Experiments/lora'
+    exp='Experiments/lora_2'
     # trial_4 was changing the attention weights also with attention loss
     # trial 5 was not changing the attention weights with attention loss with a loss weight of 10^3
     # trial 6 was changing only the qkv values in attention blocks with attention loss with a loss weight of 10^3
     # trial 7 was not changing the attention weights with attention loss with a loss weight of 10^4
+    # lora - lora adaptation with attention loss of weight 10^4
+    # lora_2 - lora adaptation modified with attention loss of weight 10^4
     writer = SummaryWriter(exp)
     num_epochs = 15
     device = 'cuda'
@@ -91,6 +93,7 @@ def main():
                 # writer.add_scalar('Output_2/accuracy_train', acc, step_train)
 
             step_train += 1
+
         precision, recall, f1, acc = get_results(torch.cat(overall_output_1), torch.cat(overall_labels))
         writer.add_scalar('Output_1/precision_train', precision, epoch)
         writer.add_scalar('Output_1/recall_train', recall, epoch)
@@ -131,10 +134,12 @@ def main():
                 loss_att = loss_attn(self_attn_1, self_attn_2)* attn_loss_weight
                 loss = loss_out + loss_att
 
-                if step_val%200:
-                    writer.add_scalar('Loss_overall/val', loss.item(), step_train)
-                    writer.add_scalar('Loss_output/val', loss_out.item(), step_train)
-                    writer.add_scalar('Loss_attention/val', loss_att.item(), step_train)
+                if step_val%5:
+                    writer.add_scalar('Loss_overall/val', loss.item(), step_val)
+                    writer.add_scalar('Loss_output/val', loss_out.item(), step_val)
+                    writer.add_scalar('Loss_attention/val', loss_att.item(), step_val)
+                    
+                step_val+=1
                 overall_output_1.append(output_1)
                 overall_output_2.append(output_2)
                 overall_labels.append(labels)

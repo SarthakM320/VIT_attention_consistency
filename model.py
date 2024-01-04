@@ -2,7 +2,7 @@ import torch
 import timm
 from torch import nn
 from einops import rearrange
-from lora import LoRA_ViT_timm
+from lora import LoRA_ViT_timm, LoRA_ViT_timm_mod
 from safetensors import safe_open
 from safetensors.torch import save_file
 from torch.nn.parameter import Parameter
@@ -59,30 +59,70 @@ class LORAModel(LoRA_ViT_timm):
 
         pip install safetensor if you do not have one installed yet.
         """
+        # _in = self.head.in_features
+        # _out = self.head.out_features
+        # fc_tensors = {f"fc_{_in}in_{_out}out": self.head.weight}
+        # save_file(fc_tensors, f'{exp}/classifier_epoch_{epoch}.safetensors')
+
+        # # saving the lora weights
+        # self.save_lora_parameters(f'{exp}/lora_epoch_{epoch}.safetensors')
+        r"""Only safetensors is supported now.
+
+        pip install safetensor if you do not have one installed yet.
+        
+        save both lora and fc parameters.
+        """
+
+        filename = f'{exp}/lora_epoch_{epoch}.safetensors'
+
+        num_layer = len(self.w_As)  # actually, it is half
+        a_tensors = {f"w_a_{i:03d}": self.w_As[i].weight for i in range(num_layer)}
+        b_tensors = {f"w_b_{i:03d}": self.w_Bs[i].weight for i in range(num_layer)}
+        
         _in = self.head.in_features
         _out = self.head.out_features
         fc_tensors = {f"fc_{_in}in_{_out}out": self.head.weight}
-        save_file(fc_tensors, f'{exp}/classifier_epoch_{epoch}.safetensors')
-
-        # saving the lora weights
-        self.save_lora_parameters(f'{exp}/lora_epoch_{epoch}.safetensors')
+        
+        merged_dict = {**a_tensors, **b_tensors, **fc_tensors}
+        save_file(merged_dict, filename)
     
     def load_model(self,exp, epoch):
         r"""Only safetensors is supported now.
 
         pip install safetensor if you do not have one installed yet.
         """
-        _in = self.head.in_features
-        _out = self.head.out_features
-        with safe_open(f'{exp}/classifier_epoch_{epoch}.safetensors', framework="pt") as f:
+        # _in = self.head.in_features
+        # _out = self.head.out_features
+        # with safe_open(f'{exp}/classifier_epoch_{epoch}.safetensors', framework="pt") as f:
+        #     saved_key = f"fc_{_in}in_{_out}out"
+        #     try:
+        #         saved_tensor = f.get_tensor(saved_key)
+        #         self.head.weight = Parameter(saved_tensor)
+        #     except ValueError:
+        #         print("this fc weight is not for this model")
+
+        # self.load_lora_parameters(f'{exp}/lora_epoch_{epoch}.safetensors')
+
+        filename = f'{exp}/lora_epoch_{epoch}.safetensors'
+        with safe_open(filename, framework="pt") as f:
+            for i, w_A_linear in enumerate(self.w_As):
+                saved_key = f"w_a_{i:03d}"
+                saved_tensor = f.get_tensor(saved_key)
+                w_A_linear.weight = Parameter(saved_tensor)
+
+            for i, w_B_linear in enumerate(self.w_Bs):
+                saved_key = f"w_b_{i:03d}"
+                saved_tensor = f.get_tensor(saved_key)
+                w_B_linear.weight = Parameter(saved_tensor)
+                
+            _in = self.head.in_features
+            _out = self.head.out_features
             saved_key = f"fc_{_in}in_{_out}out"
             try:
                 saved_tensor = f.get_tensor(saved_key)
                 self.head.weight = Parameter(saved_tensor)
             except ValueError:
                 print("this fc weight is not for this model")
-
-        self.load_lora_parameters(f'{exp}/lora_epoch_{epoch}.safetensors')
         
 
 
