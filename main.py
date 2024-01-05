@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from model import Model, LORAModel
 from utils_own import horizontal_flip, horizontal_flip_target, vertical_flip, vertical_flip_target
-from data import train_dataset, val_dataset
+from data import train_dataset, val_dataset, triplet_dataset
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm 
@@ -14,7 +14,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 def main():
     # exp = 'Experiments/baseline_adam_lr0.005_dino_imagenet'
-    exp='Experiments/lora_mod'
+    exp='Experiments/trip_trial'
     # trial_4 was changing the attention weights also with attention loss
     # trial 5 was not changing the attention weights with attention loss with a loss weight of 10^3
     # trial 6 was changing only the qkv values in attention blocks with attention loss with a loss weight of 10^3
@@ -26,34 +26,50 @@ def main():
     device = 'cuda'
     # model = Model().to(device)
     model = LORAModel().to(device)
+
     train_data = train_dataset()
     val_data = val_dataset()
+    triplet_data = triplet_dataset()
+    triplet_val_data = triplet_dataset(csv_path='AID_data_triplet_val.csv')
+
     train_dataloader = DataLoader(train_data, batch_size = 32, shuffle = True)
-    val_dataloader = DataLoader(val_data, batch_size = 64, shuffle=True)
-    loss_output = nn.CrossEntropyLoss()
-    loss_attn = nn.MSELoss()
+    val_dataloader = DataLoader(val_data, batch_size = 32, shuffle=True)
+    triplet_dataloader = DataLoader(triplet_data,batch_size=32, shuffle = True)
+    triplet_val_dataloader = DataLoader(triplet_val_data, batch_size = 32, shuffle=True)
+
+    loss_output_fn = nn.CrossEntropyLoss()
+    loss_attn_fn = nn.MSELoss()
+    loss_triplet_fn = nn.TripletMarginLoss()
+
     optim = torch.optim.Adam(model.parameters(), lr = 0.005)
-    step_train = 1800
-    step_val = 1750
-    resume = True
-    resume_epochs = 7
+    step_train = 0
+    step_val = 0
+    resume = False
+    resume_epochs = 0
     attn_loss_weight = 10**4
 
     if resume:
         model.load_model(f'{exp}', resume_epochs)
         model = model.to(device)
 
-    for epoch in range(resume_epochs+1, num_epochs):
+    for epoch in range(resume_epochs+1, num_epochs+1):
         print(f'EPOCH {epoch}')
         overall_output_1 = []
         overall_output_2 = []
         overall_labels = []  
-        for idx, input_data in enumerate(tqdm(train_dataloader)):
+
+        model.train()
+        for idx, (input_data, trip_data) in enumerate(tqdm(zip(train_dataloader, triplet_dataloader))):
             image_1, image_2, labels, type = input_data
             image_1 = image_1.to(device)
             image_2 = image_2.to(device)
             labels = labels.to(device)
             b = len(labels)
+            anc, pos, neg = trip_data
+            anc = anc.to(device)
+            pos = pos.to(device)
+            neg = neg.to(device)
+
             
             self_attn_1, output_1, self_attn_2, output_2 = model(image_1, image_2)
 
@@ -63,9 +79,16 @@ def main():
 
             self_attn_1 = torch.cat(frames)
             
-            loss_out = (loss_output(output_1, labels) + loss_output(output_2, labels)) # TODO try weighted cross entropy also
-            loss_att = loss_attn(self_attn_1, self_attn_2)*attn_loss_weight 
-            loss = loss_out + loss_att
+            loss_out = (loss_output_fn(output_1, labels) + loss_output_fn(output_2, labels)) # TODO try weighted cross entropy also
+            loss_att = loss_attn_fn(self_attn_1, self_attn_2)*attn_loss_weight 
+
+            anc_features, pos_features, neg_features = model.triplet_forward(anc, pos, neg)
+            loss_trip = loss_triplet_fn(anc_features, pos_features, neg_features)*10
+            # print(f'ANC: {anc_features.shape}')
+            # print(f'ANC: {pos_features.shape}')
+            # print(f'ANC: {neg_features.shape}')
+            # print(f'Loss: {loss_trip}')
+            loss = loss_out + loss_att + loss_trip
             # loss = loss_out
             optim.zero_grad()
             loss.backward()
@@ -79,6 +102,8 @@ def main():
                 writer.add_scalar('Loss_overall/train', loss.item(), step_train)
                 writer.add_scalar('Loss_output/train', loss_out.item(), step_train)
                 writer.add_scalar('Loss_attention/train', loss_att.item(), step_train)
+                writer.add_scalar('Loss_triplet/train', loss_trip.item(), step_train)
+
 
             # if step_train%10 == 0:
                 # print(f'Epoch: {epoch}, Loss Overall: {loss.item()}, Loss Output: {loss_out}, Loss attention: {loss_att}')
@@ -116,14 +141,19 @@ def main():
         overall_output_2 = []
         overall_labels = []   
         
-        for idx, input_data in enumerate(tqdm(val_dataloader)):
+        model.eval()
+        for idx, (input_data,trip_data) in enumerate(tqdm(zip(val_dataloader, triplet_val_dataloader))):
             with torch.no_grad():
                 image_1, image_2, labels, type = input_data
                 image_1 = image_1.to(device)
                 image_2 = image_2.to(device)
                 labels = labels.to(device)
                 b = len(labels)
-                
+                anc, pos, neg = trip_data
+                anc = anc.to(device)
+                pos = pos.to(device)
+                neg = neg.to(device)
+
                 self_attn_1, output_1, self_attn_2, output_2 = model(image_1, image_2)
 
                 frames = []
@@ -132,14 +162,19 @@ def main():
                 self_attn_1 = torch.cat(frames)
                 output_1 = output_1.softmax(dim=-1)
                 output_2 = output_2.softmax(dim=-1)
-                loss_out = loss_output(output_1, labels) + loss_output(output_2, labels) # TODO try weighted cross entropy also
-                loss_att = loss_attn(self_attn_1, self_attn_2)* attn_loss_weight
+                loss_out = loss_output_fn(output_1, labels) + loss_output_fn(output_2, labels) # TODO try weighted cross entropy also
+                loss_att = loss_attn_fn(self_attn_1, self_attn_2)* attn_loss_weight
+
+                anc_features, pos_features, neg_features = model.triplet_forward(anc, pos, neg)
+                loss_trip = loss_triplet_fn(anc_features, pos_features, neg_features)*10        
                 loss = loss_out + loss_att
 
                 if step_val%5:
                     writer.add_scalar('Loss_overall/val', loss.item(), step_val)
                     writer.add_scalar('Loss_output/val', loss_out.item(), step_val)
                     writer.add_scalar('Loss_attention/val', loss_att.item(), step_val)
+                    writer.add_scalar('Loss_triplet/val', loss_trip.item(), step_val)
+
 
                 step_val+=1
                 overall_output_1.append(output_1)

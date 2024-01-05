@@ -78,6 +78,27 @@ class val_dataset(Dataset):
         else:
             return image_1, image_2, label, 'vertical'
 
+
+class triplet_dataset(Dataset):
+    def __init__(self, csv_path='AID_data_triplet.csv'):
+        csv = pd.read_csv(csv_path)
+        self.anchor = csv['image'].values
+        self.pos = csv['image_pos'].values
+        self.neg = csv['image_neg'].values
+        self.transforms = transforms.Compose([
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomVerticalFlip(p=0.5),
+            transforms.Resize((224,224)),
+            transforms.ToTensor(),
+            # transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)) # imagenet normalization
+        ])
+    
+    def __len__(self):
+        return len(self.anchor)
+    
+    def __getitem__(self, idx):
+        return self.transforms(Image.open(self.anchor[idx])), self.transforms(Image.open(self.pos[idx])), self.transforms(Image.open(self.neg[idx]))
+
 # class val_dataset(Dataset):
 #     def __init__(self, csv_path='AID_val_data.csv'):
 #         csv = pd.read_csv(csv_path)

@@ -7,7 +7,7 @@ from safetensors import safe_open
 from safetensors.torch import save_file
 from torch.nn.parameter import Parameter
 
-class LORAModel(LoRA_ViT_timm_mod):
+class LORAModel(LoRA_ViT_timm):
     def __init__(self, r = 4,num_classes = 30, pretrained = True, freeze = True, layer = -1):
         self.layer = layer
         super().__init__(vit_model=timm.create_model('vit_small_patch16_224',num_classes = 0, pretrained=pretrained), r=r)
@@ -53,6 +53,9 @@ class LORAModel(LoRA_ViT_timm_mod):
 
         return self_attn_1, output_1, self_attn_2, output_2
     
+    def triplet_forward(self, anc, pos, neg):
+        return self.model(anc),self.model(pos),self.model(neg)
+
     def save_model(self, epoch, exp):
         #first saving the head
         r"""Only safetensors is supported now.
@@ -183,6 +186,9 @@ class Model(nn.Module):
         id.remove()
 
         return self_attn_1, output_1, self_attn_2, output_2
+
+    def triplet_forward(self, anc, pos, neg):
+        return self.model(anc),self.model(pos),self.model(neg)
 
     def save_model(self, epoch, exp):
         torch.save(
