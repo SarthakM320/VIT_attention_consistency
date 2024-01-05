@@ -11,9 +11,10 @@ import warnings
 warnings.filterwarnings('ignore')
 from torch.utils.tensorboard import SummaryWriter
 
+
 def main():
     # exp = 'Experiments/baseline_adam_lr0.005_dino_imagenet'
-    exp='Experiments/lora_mod_2'
+    exp='Experiments/lora_mod'
     # trial_4 was changing the attention weights also with attention loss
     # trial 5 was not changing the attention weights with attention loss with a loss weight of 10^3
     # trial 6 was changing only the qkv values in attention blocks with attention loss with a loss weight of 10^3
@@ -32,14 +33,15 @@ def main():
     loss_output = nn.CrossEntropyLoss()
     loss_attn = nn.MSELoss()
     optim = torch.optim.Adam(model.parameters(), lr = 0.005)
-    step_train = 0
-    step_val = 0
-    resume = False
-    resume_epochs = 0
+    step_train = 1800
+    step_val = 1750
+    resume = True
+    resume_epochs = 7
     attn_loss_weight = 10**4
 
     if resume:
         model.load_model(f'{exp}', resume_epochs)
+        model = model.to(device)
 
     for epoch in range(resume_epochs+1, num_epochs):
         print(f'EPOCH {epoch}')

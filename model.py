@@ -121,6 +121,7 @@ class LORAModel(LoRA_ViT_timm_mod):
             try:
                 saved_tensor = f.get_tensor(saved_key)
                 self.head.weight = Parameter(saved_tensor)
+                print('Model loaded successfully')
             except ValueError:
                 print("this fc weight is not for this model")
         
