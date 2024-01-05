@@ -27,15 +27,11 @@ def main():
     # model = Model().to(device)
     model = LORAModel().to(device)
 
-    train_data = train_dataset()
-    val_data = val_dataset()
     triplet_data = triplet_dataset()
     triplet_val_data = triplet_dataset(csv_path='AID_data_triplet_val.csv')
 
-    train_dataloader = DataLoader(train_data, batch_size = 32, shuffle = True)
-    val_dataloader = DataLoader(val_data, batch_size = 32, shuffle=True)
-    triplet_dataloader = DataLoader(triplet_data,batch_size=32, shuffle = True)
-    triplet_val_dataloader = DataLoader(triplet_val_data, batch_size = 32, shuffle=True)
+    train_dataloader = DataLoader(triplet_data, batch_size = 32, shuffle = True)
+    val_dataloader = DataLoader(triplet_val_data, batch_size = 32, shuffle=True)
 
     loss_output_fn = nn.CrossEntropyLoss()
     loss_attn_fn = nn.MSELoss()
@@ -59,19 +55,17 @@ def main():
         overall_labels = []  
 
         model.train()
-        for idx, (input_data, trip_data) in enumerate(tqdm(zip(train_dataloader, triplet_dataloader))):
-            image_1, image_2, labels, type = input_data
-            image_1 = image_1.to(device)
+        for idx, (input_data, trip_data) in enumerate(tqdm(train_dataloader)):
+            anc, image_2, labels, type, pos, neg = input_data
+            anc = anc.to(device)
             image_2 = image_2.to(device)
             labels = labels.to(device)
             b = len(labels)
-            anc, pos, neg = trip_data
-            anc = anc.to(device)
             pos = pos.to(device)
             neg = neg.to(device)
 
             
-            self_attn_1, output_1, self_attn_2, output_2 = model(image_1, image_2)
+            self_attn_1, output_1, self_attn_2, output_2 = model(anc, image_2)
 
             frames = []
             for i in range(b):
@@ -142,19 +136,17 @@ def main():
         overall_labels = []   
         
         model.eval()
-        for idx, (input_data,trip_data) in enumerate(tqdm(zip(val_dataloader, triplet_val_dataloader))):
+        for idx, (input_data, trip_data) in enumerate(tqdm(val_dataloader)):
             with torch.no_grad():
-                image_1, image_2, labels, type = input_data
-                image_1 = image_1.to(device)
+                anc, image_2, labels, type, pos, neg = input_data
+                anc = anc.to(device)
                 image_2 = image_2.to(device)
                 labels = labels.to(device)
                 b = len(labels)
-                anc, pos, neg = trip_data
-                anc = anc.to(device)
                 pos = pos.to(device)
                 neg = neg.to(device)
 
-                self_attn_1, output_1, self_attn_2, output_2 = model(image_1, image_2)
+                self_attn_1, output_1, self_attn_2, output_2 = model(anc, image_2)
 
                 frames = []
                 for i in range(b):
