@@ -1,5 +1,7 @@
 import torch
 from torch import nn
+import numpy as np
+import random
 from model import Model, LORAModel
 from utils_own import horizontal_flip, horizontal_flip_target, vertical_flip, vertical_flip_target
 from data import train_dataset, val_dataset, triplet_dataset
@@ -13,6 +15,9 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 def main():
+    torch.manual_seed(0)
+    np.random.seed(0)
+    random.seed(0)
     # exp = 'Experiments/baseline_adam_lr0.005_dino_imagenet'
     exp='Experiments/trip_trial'
     # trial_4 was changing the attention weights also with attention loss
@@ -26,22 +31,21 @@ def main():
     device = 'cuda'
     # model = Model().to(device)
     model = LORAModel().to(device)
-
     triplet_data = triplet_dataset()
     triplet_val_data = triplet_dataset(csv_path='AID_data_triplet_val.csv')
 
     train_dataloader = DataLoader(triplet_data, batch_size = 32, shuffle = True)
-    val_dataloader = DataLoader(triplet_val_data, batch_size = 32, shuffle=True)
+    val_dataloader = DataLoader(triplet_val_data, batch_size = 32, shuffle = True)
 
     loss_output_fn = nn.CrossEntropyLoss()
     loss_attn_fn = nn.MSELoss()
     loss_triplet_fn = nn.TripletMarginLoss()
 
     optim = torch.optim.Adam(model.parameters(), lr = 0.005)
-    step_train = 0
-    step_val = 0
-    resume = False
-    resume_epochs = 0
+    step_train = 2250
+    step_val = 575
+    resume = True
+    resume_epochs = 9
     attn_loss_weight = 10**4
 
     if resume:
@@ -55,7 +59,7 @@ def main():
         overall_labels = []  
 
         model.train()
-        for idx, (input_data, trip_data) in enumerate(tqdm(train_dataloader)):
+        for idx, input_data in enumerate(tqdm(train_dataloader)):
             anc, image_2, labels, type, pos, neg = input_data
             anc = anc.to(device)
             image_2 = image_2.to(device)
@@ -136,7 +140,7 @@ def main():
         overall_labels = []   
         
         model.eval()
-        for idx, (input_data, trip_data) in enumerate(tqdm(val_dataloader)):
+        for idx, input_data in enumerate(tqdm(val_dataloader)):
             with torch.no_grad():
                 anc, image_2, labels, type, pos, neg = input_data
                 anc = anc.to(device)
