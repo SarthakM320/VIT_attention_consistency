@@ -7,7 +7,7 @@ from safetensors import safe_open
 from safetensors.torch import save_file
 from torch.nn.parameter import Parameter
 
-class LORAModel(LoRA_ViT_timm_mod):
+class LORAModel(LoRA_ViT_timm):
     def __init__(self, r = 4,num_classes = 30, pretrained = True, freeze = True, layer = -1):
         self.layer = layer
         super().__init__(vit_model=timm.create_model('vit_small_patch16_224',num_classes = 0, pretrained=pretrained), r=r)

@@ -10,11 +10,24 @@ from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_sc
 import warnings
 warnings.filterwarnings('ignore')
 from torch.utils.tensorboard import SummaryWriter
+import numpy as np 
+import random
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def main():
+    seed = 2**4
+    set_seed(seed)
     # exp = 'Experiments/baseline_adam_lr0.005_dino_imagenet'
-    exp='Experiments/lora_mod'
+    exp=f'Experiments/lora_seed_{seed}'
     # trial_4 was changing the attention weights also with attention loss
     # trial 5 was not changing the attention weights with attention loss with a loss weight of 10^3
     # trial 6 was changing only the qkv values in attention blocks with attention loss with a loss weight of 10^3
@@ -33,10 +46,10 @@ def main():
     loss_output = nn.CrossEntropyLoss()
     loss_attn = nn.MSELoss()
     optim = torch.optim.Adam(model.parameters(), lr = 0.005)
-    step_train = 1800
-    step_val = 1750
-    resume = True
-    resume_epochs = 7
+    step_train = 0
+    step_val = 0
+    resume = False
+    resume_epochs = 0
     attn_loss_weight = 10**4
 
     if resume:
