@@ -13,13 +13,21 @@ import warnings
 warnings.filterwarnings('ignore')
 from torch.utils.tensorboard import SummaryWriter
 
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 
 def main():
-    torch.manual_seed(0)
-    np.random.seed(0)
-    random.seed(0)
+    seed = 2**4
+    set_seed(seed)
     # exp = 'Experiments/baseline_adam_lr0.005_dino_imagenet'
-    exp='Experiments/trip_trial'
+    exp=f'Experiments/lora_mod_without_attnloss_seed_{seed}'
     # trial_4 was changing the attention weights also with attention loss
     # trial 5 was not changing the attention weights with attention loss with a loss weight of 10^3
     # trial 6 was changing only the qkv values in attention blocks with attention loss with a loss weight of 10^3
