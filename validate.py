@@ -9,6 +9,7 @@ import sys
 from tqdm import tqdm 
 from PIL import Image
 import os
+import argparse
 
 class dataset(Dataset):
     def __init__(self, df):
@@ -23,31 +24,32 @@ class dataset(Dataset):
     def __getitem__(self, idx):
         return self.transform(Image.open(self.images[idx])), self.labels[idx]
 
-def main():
+def main(args):
     csv = pd.read_csv('AID_data_val.csv')
+    device = args['device']
+    exp_name = 'Experiments_new/'+args['exp_name']
     # exp_name = 'Experiments\Experiments_colab\\baseline_all_three_seed_16'
-    exp_name = 'Experiments\Experiments_colab\lora_all_three_seed_16'
+    # exp_name = 'Experiments\Experiments_colab\lora_all_three_seed_16'
     # exp_name = 'Experiments\\baseline_adam_lr0.005_imagenet'
 
-    if 'lora' in exp_name:
-        epoch = int(os.listdir(exp_name)[-1].split('.')[0].split('_')[-1])
-    else:
-        epoch = int(os.listdir(exp_name)[-2].split('.')[0].split('_')[-1])
     
 
     data = dataset(csv)
     dataloader = DataLoader(data, shuffle = True, batch_size=32)
     
-    if 'baseline' in exp_name:
+    if args['model_type'] == 'base_imagenet':
         model = Model()
-    elif 'lora' in exp_name and 'mod' in exp_name:
-        model = LORAModelMod()
-    else:
+    elif args['model_type'] == 'lora':
         model = LORAModel()
+    elif args['model_type'] == 'lora_mod':
+        model = LORAModelMod()
+    
 
-    model.load_model(exp_name, epoch)
-    model = model.cuda()
+    epoch = model.load_model(exp_name, latest = False)
+
+    model = model.to(device)
     model.eval()
+
     correct = 0
     total = 0
     with torch.no_grad():
@@ -64,7 +66,13 @@ def main():
     print('Accuracy: ', (correct/total).item()*100)
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Argument Parser for your script")
+    parser.add_argument('--model_type', choices=['base_imagenet', 'lora', 'lora_mod'], help='Model type', default = 'base_imagenet')
+    parser.add_argument('--exp_name', type=str, required=True, help='Experiment name')
+    parser.add_argument('--device', type=str, default='cuda', help='Device (e.g., cuda or cpu)')
+    parser.add_argument('--seed', type=int, default=16, help='Random seed')
+    args = vars(parser.parse_args())
+    main(args)
 
 
     

@@ -56,7 +56,8 @@ class LORAModel(LoRA_ViT_timm):
     def triplet_forward(self, anc, pos, neg):
         return self.model(anc),self.model(pos),self.model(neg)
 
-    def save_model(self, epoch, exp):
+    def save_model(self, epoch,exp, latest = True):
+        extension = 'latest' if latest else 'best'
         #first saving the head
         r"""Only safetensors is supported now.
 
@@ -76,7 +77,7 @@ class LORAModel(LoRA_ViT_timm):
         save both lora and fc parameters.
         """
 
-        filename = f'{exp}/lora_epoch_{epoch}.safetensors'
+        filename = f'{exp}/lora_epoch_{extension}.safetensors'
 
         num_layer = len(self.w_As)  # actually, it is half
         a_tensors = {f"w_a_{i:03d}": self.w_As[i].weight for i in range(num_layer)}
@@ -86,14 +87,15 @@ class LORAModel(LoRA_ViT_timm):
         _out = self.head.out_features
         fc_tensors = {f"fc_{_in}in_{_out}out": self.head.weight}
         
-        merged_dict = {**a_tensors, **b_tensors, **fc_tensors}
+        merged_dict = {**a_tensors, **b_tensors, **fc_tensors, 'epoch':torch.tensor(epoch)}
         save_file(merged_dict, filename)
     
-    def load_model(self,exp, epoch):
+    def load_model(self,exp,  latest = True):
         r"""Only safetensors is supported now.
 
         pip install safetensor if you do not have one installed yet.
         """
+        extension = 'latest' if latest else 'best'
         # _in = self.head.in_features
         # _out = self.head.out_features
         # with safe_open(f'{exp}/classifier_epoch_{epoch}.safetensors', framework="pt") as f:
@@ -106,7 +108,7 @@ class LORAModel(LoRA_ViT_timm):
 
         # self.load_lora_parameters(f'{exp}/lora_epoch_{epoch}.safetensors')
 
-        filename = f'{exp}/lora_epoch_{epoch}.safetensors'
+        filename = f'{exp}/lora_epoch_{extension}.safetensors'
         with safe_open(filename, framework="pt") as f:
             for i, w_A_linear in enumerate(self.w_As):
                 saved_key = f"w_a_{i:03d}"
@@ -121,12 +123,15 @@ class LORAModel(LoRA_ViT_timm):
             _in = self.head.in_features
             _out = self.head.out_features
             saved_key = f"fc_{_in}in_{_out}out"
+            epoch = f.get_tensor('epoch')
             try:
                 saved_tensor = f.get_tensor(saved_key)
                 self.head.weight = Parameter(saved_tensor)
                 print('Model loaded successfully')
             except ValueError:
                 print("this fc weight is not for this model")
+
+        return epoch.item()
         
 class LORAModelMod(LoRA_ViT_timm_mod):
     def __init__(self, r = 4,num_classes = 30, pretrained = True, freeze = True, layer = -1):
@@ -177,7 +182,8 @@ class LORAModelMod(LoRA_ViT_timm_mod):
     def triplet_forward(self, anc, pos, neg):
         return self.model(anc),self.model(pos),self.model(neg)
 
-    def save_model(self, epoch, exp):
+    def save_model(self, epoch,exp, latest = True):
+        extension = 'latest' if latest else 'best'
         #first saving the head
         r"""Only safetensors is supported now.
 
@@ -197,7 +203,7 @@ class LORAModelMod(LoRA_ViT_timm_mod):
         save both lora and fc parameters.
         """
 
-        filename = f'{exp}/lora_epoch_{epoch}.safetensors'
+        filename = f'{exp}/lora_epoch_{extension}.safetensors'
 
         num_layer = len(self.w_As)  # actually, it is half
         a_tensors = {f"w_a_{i:03d}": self.w_As[i].weight for i in range(num_layer)}
@@ -207,14 +213,15 @@ class LORAModelMod(LoRA_ViT_timm_mod):
         _out = self.head.out_features
         fc_tensors = {f"fc_{_in}in_{_out}out": self.head.weight}
         
-        merged_dict = {**a_tensors, **b_tensors, **fc_tensors}
+        merged_dict = {**a_tensors, **b_tensors, **fc_tensors, 'epoch':torch.tensor(epoch)}
         save_file(merged_dict, filename)
     
-    def load_model(self,exp, epoch):
+    def load_model(self,exp, latest = True):
         r"""Only safetensors is supported now.
 
         pip install safetensor if you do not have one installed yet.
         """
+        extension = 'latest' if latest else 'best'
         # _in = self.head.in_features
         # _out = self.head.out_features
         # with safe_open(f'{exp}/classifier_epoch_{epoch}.safetensors', framework="pt") as f:
@@ -227,7 +234,7 @@ class LORAModelMod(LoRA_ViT_timm_mod):
 
         # self.load_lora_parameters(f'{exp}/lora_epoch_{epoch}.safetensors')
 
-        filename = f'{exp}/lora_epoch_{epoch}.safetensors'
+        filename = f'{exp}/lora_epoch_{extension}.safetensors'
         with safe_open(filename, framework="pt") as f:
             for i, w_A_linear in enumerate(self.w_As):
                 saved_key = f"w_a_{i:03d}"
@@ -242,12 +249,15 @@ class LORAModelMod(LoRA_ViT_timm_mod):
             _in = self.head.in_features
             _out = self.head.out_features
             saved_key = f"fc_{_in}in_{_out}out"
+            epoch = f.get_tensor('epoch')
             try:
                 saved_tensor = f.get_tensor(saved_key)
                 self.head.weight = Parameter(saved_tensor)
                 print('Model loaded successfully')
             except ValueError:
                 print("this fc weight is not for this model")
+
+        return epoch.item()
         
 
 
@@ -311,19 +321,34 @@ class Model(nn.Module):
     def triplet_forward(self, anc, pos, neg):
         return self.model(anc),self.model(pos),self.model(neg)
 
-    def save_model(self, epoch, exp):
-        torch.save(
-            {
-                'model':self.model.state_dict(),
-                'head':self.head.state_dict(),
-                'epoch':epoch,
-            },
-            f'{exp}/checkpoint_{epoch}.pth'
-        )
+    def save_model(self, epoch, exp, latest = True):
+        if latest:
+            torch.save(
+                {
+                    'model':self.model.state_dict(),
+                    'head':self.head.state_dict(),
+                    'epoch':epoch,
+                },
+                f'{exp}/checkpoint_latest.pth'
+            )
+        else:
+            torch.save(
+                {
+                    'model':self.model.state_dict(),
+                    'head':self.head.state_dict(),
+                    'epoch':epoch,
+                },
+                f'{exp}/checkpoint_best.pth'
+            )
     
-    def load_model(self, exp, epoch):
-        ckpt = torch.load(f'{exp}/checkpoint_{epoch}.pth')
+    def load_model(self, exp,  latest = True):
+        if latest:
+            ckpt = torch.load(f'{exp}/checkpoint_latest.pth')
+        else:
+            ckpt = torch.load(f'{exp}/checkpoint_best.pth')
+
         self.model.load_state_dict(ckpt['model'])
         self.head.load_state_dict(ckpt['head'])
+        return ckpt['epoch']
 
 
