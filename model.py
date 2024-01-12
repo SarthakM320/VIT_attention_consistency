@@ -3,6 +3,7 @@ import timm
 from torch import nn
 from einops import rearrange
 from lora import LoRA_ViT_timm, LoRA_ViT_timm_mod
+from adapter import Adapter_ViT
 from safetensors import safe_open
 from safetensors.torch import save_file
 from torch.nn.parameter import Parameter
@@ -12,12 +13,15 @@ class LORAModel(LoRA_ViT_timm):
         self.layer = layer
         super().__init__(vit_model=timm.create_model('vit_small_patch16_224',num_classes = 0, pretrained=pretrained), r=r)
         self.model = self.lora_vit
+        del self.lora_vit
         self.head = nn.Linear(self.model.embed_dim, num_classes)
         self.num_heads = self.model.blocks[layer].attn.num_heads
-    
-    def forward(self, inp1, inp2):
+
+    def forward(self, inp1, inp2=None):
+        if inp2 is None:
+            inp2 = torch.zeros_like(inp1)
         feats = []
-        # Using multiple layers 
+        # Using multiple layers
         B,C,H,W = inp1.shape
 
         def hook(module, input, output):
@@ -40,7 +44,7 @@ class LORAModel(LoRA_ViT_timm):
         dim = int(self_attn_1.shape[-2]**0.5)
         # self_attn_1 = self_attn_1.reshape(B,self.num_heads,dim,dim,dim,dim) # b,12,14,14,14,14
         self_attn_1 = rearrange(self_attn_1, 'b h (h1 w1) (h2 w2) -> b h h1 w1 h2 w2', h2 = dim, h1 = dim)
-        
+
 
         output_2 = self.head(self.model(inp2))
         # removing the cls token
@@ -50,9 +54,9 @@ class LORAModel(LoRA_ViT_timm):
         # print(self_attn_2.shape)
 
         id.remove()
-
+        # return output_1
         return self_attn_1, output_1, self_attn_2, output_2
-    
+
     def triplet_forward(self, anc, pos, neg):
         return self.model(anc),self.model(pos),self.model(neg)
 
@@ -73,7 +77,7 @@ class LORAModel(LoRA_ViT_timm):
         r"""Only safetensors is supported now.
 
         pip install safetensor if you do not have one installed yet.
-        
+
         save both lora and fc parameters.
         """
 
@@ -82,14 +86,14 @@ class LORAModel(LoRA_ViT_timm):
         num_layer = len(self.w_As)  # actually, it is half
         a_tensors = {f"w_a_{i:03d}": self.w_As[i].weight for i in range(num_layer)}
         b_tensors = {f"w_b_{i:03d}": self.w_Bs[i].weight for i in range(num_layer)}
-        
+
         _in = self.head.in_features
         _out = self.head.out_features
         fc_tensors = {f"fc_{_in}in_{_out}out": self.head.weight}
-        
+
         merged_dict = {**a_tensors, **b_tensors, **fc_tensors, 'epoch':torch.tensor(epoch)}
         save_file(merged_dict, filename)
-    
+
     def load_model(self,exp,  latest = True):
         r"""Only safetensors is supported now.
 
@@ -119,7 +123,7 @@ class LORAModel(LoRA_ViT_timm):
                 saved_key = f"w_b_{i:03d}"
                 saved_tensor = f.get_tensor(saved_key)
                 w_B_linear.weight = Parameter(saved_tensor)
-                
+
             _in = self.head.in_features
             _out = self.head.out_features
             saved_key = f"fc_{_in}in_{_out}out"
@@ -132,18 +136,19 @@ class LORAModel(LoRA_ViT_timm):
                 print("this fc weight is not for this model")
 
         return epoch.item()
-        
+
 class LORAModelMod(LoRA_ViT_timm_mod):
     def __init__(self, r = 4,num_classes = 30, pretrained = True, freeze = True, layer = -1):
         self.layer = layer
         super().__init__(vit_model=timm.create_model('vit_small_patch16_224',num_classes = 0, pretrained=pretrained), r=r)
         self.model = self.lora_vit
+        del self.lora_vit
         self.head = nn.Linear(self.model.embed_dim, num_classes)
         self.num_heads = self.model.blocks[layer].attn.num_heads
-    
+
     def forward(self, inp1, inp2):
         feats = []
-        # Using multiple layers 
+        # Using multiple layers
         B,C,H,W = inp1.shape
 
         def hook(module, input, output):
@@ -166,7 +171,7 @@ class LORAModelMod(LoRA_ViT_timm_mod):
         dim = int(self_attn_1.shape[-2]**0.5)
         # self_attn_1 = self_attn_1.reshape(B,self.num_heads,dim,dim,dim,dim) # b,12,14,14,14,14
         self_attn_1 = rearrange(self_attn_1, 'b h (h1 w1) (h2 w2) -> b h h1 w1 h2 w2', h2 = dim, h1 = dim)
-        
+
 
         output_2 = self.head(self.model(inp2))
         # removing the cls token
@@ -178,7 +183,7 @@ class LORAModelMod(LoRA_ViT_timm_mod):
         id.remove()
 
         return self_attn_1, output_1, self_attn_2, output_2
-    
+
     def triplet_forward(self, anc, pos, neg):
         return self.model(anc),self.model(pos),self.model(neg)
 
@@ -199,7 +204,7 @@ class LORAModelMod(LoRA_ViT_timm_mod):
         r"""Only safetensors is supported now.
 
         pip install safetensor if you do not have one installed yet.
-        
+
         save both lora and fc parameters.
         """
 
@@ -208,14 +213,14 @@ class LORAModelMod(LoRA_ViT_timm_mod):
         num_layer = len(self.w_As)  # actually, it is half
         a_tensors = {f"w_a_{i:03d}": self.w_As[i].weight for i in range(num_layer)}
         b_tensors = {f"w_b_{i:03d}": self.w_Bs[i].weight for i in range(num_layer)}
-        
+
         _in = self.head.in_features
         _out = self.head.out_features
         fc_tensors = {f"fc_{_in}in_{_out}out": self.head.weight}
-        
+
         merged_dict = {**a_tensors, **b_tensors, **fc_tensors, 'epoch':torch.tensor(epoch)}
         save_file(merged_dict, filename)
-    
+
     def load_model(self,exp, latest = True):
         r"""Only safetensors is supported now.
 
@@ -245,7 +250,7 @@ class LORAModelMod(LoRA_ViT_timm_mod):
                 saved_key = f"w_b_{i:03d}"
                 saved_tensor = f.get_tensor(saved_key)
                 w_B_linear.weight = Parameter(saved_tensor)
-                
+
             _in = self.head.in_features
             _out = self.head.out_features
             saved_key = f"fc_{_in}in_{_out}out"
@@ -258,7 +263,85 @@ class LORAModelMod(LoRA_ViT_timm_mod):
                 print("this fc weight is not for this model")
 
         return epoch.item()
-        
+
+class AdapterModel(Adapter_ViT):
+    def __init__(self, r = 4,num_classes = 30, pretrained = True, freeze = True, layer = -1):
+        super().__init__(vit_model=timm.create_model('vit_small_patch16_224',num_classes = 0, pretrained=pretrained), num_classes = num_classes)
+
+        self.layer = layer
+        self.num_classes = num_classes
+        self.model = self.backbone
+        del self.backbone
+
+
+    def forward(self, inp1, inp2):
+        feats = []
+        # Using multiple layers
+        B,C,H,W = inp1.shape
+
+        def hook(module, input, output):
+            input = input[0]
+            B, N, C = input.shape
+            qkv = module.qkv(input).reshape(B, N, 3, module.num_heads, C // module.num_heads).permute(2, 0, 3, 1, 4)
+            q = qkv[0]
+            k = qkv[1]
+            v = qkv[2]
+            scale = q.shape[-1] ** -0.5
+            attn = (q@k.transpose(-2, -1))*scale
+            attn = attn.softmax(dim=-1)
+            feats.append(attn)
+
+        id = self.model.blocks[self.layer].attn.register_forward_hook(hook)
+
+        output_1 = self.adapter(self.model(inp1))
+        # removing the cls token
+        self_attn_1 = feats[-1][:,:,1:,1:]
+        dim = int(self_attn_1.shape[-2]**0.5)
+        # self_attn_1 = self_attn_1.reshape(B,self.num_heads,dim,dim,dim,dim) # b,12,14,14,14,14
+        self_attn_1 = rearrange(self_attn_1, 'b h (h1 w1) (h2 w2) -> b h h1 w1 h2 w2', h2 = dim, h1 = dim)
+
+
+        output_2 = self.adapter(self.model(inp2))
+        # removing the cls token
+        self_attn_2 = feats[-1][:,:,1:,1:]
+        dim = int(self_attn_2.shape[-2]**0.5)
+        self_attn_2 = rearrange(self_attn_2, 'b h (h1 w1) (h2 w2) -> b h h1 w1 h2 w2', h2 = dim, h1 = dim)
+        # print(self_attn_2.shape)
+
+        id.remove()
+
+        return self_attn_1, output_1, self_attn_2, output_2
+
+    def triplet_forward(self, anc, pos, neg):
+        return self.model(anc),self.model(pos),self.model(neg)
+
+    def save_model(self, epoch,exp, latest = True):
+        if latest:
+            torch.save(
+                {
+                    'head':self.adapter.state_dict(),
+                    'epoch':epoch,
+                },
+                f'{exp}/checkpoint_latest.pth'
+            )
+        else:
+            torch.save(
+                {
+                    'head':self.adapter.state_dict(),
+                    'epoch':epoch,
+                },
+                f'{exp}/checkpoint_best.pth'
+            )
+
+    def load_model(self, exp,  latest = True):
+        if latest:
+            ckpt = torch.load(f'{exp}/checkpoint_latest.pth')
+        else:
+            ckpt = torch.load(f'{exp}/checkpoint_best.pth')
+
+        self.adapter.load_state_dict(ckpt['head'])
+        return ckpt['epoch']
+
 
 
 class Model(nn.Module):
@@ -275,14 +358,14 @@ class Model(nn.Module):
             #         param.requires_grad = True
             #     for param in self.model.blocks[p].attn.parameters():
             #         param.requires_grad = True
-                
+
 
         self.head = nn.Linear(self.model.embed_dim, num_classes)
         self.num_heads = self.model.blocks[layer].attn.num_heads
-    
+
     def forward(self, inp1, inp2):
         feats = []
-        # Using multiple layers 
+        # Using multiple layers
         B,C,H,W = inp1.shape
 
         def hook(module, input, output):
@@ -305,7 +388,7 @@ class Model(nn.Module):
         dim = int(self_attn_1.shape[-2]**0.5)
         # self_attn_1 = self_attn_1.reshape(B,self.num_heads,dim,dim,dim,dim) # b,12,14,14,14,14
         self_attn_1 = rearrange(self_attn_1, 'b h (h1 w1) (h2 w2) -> b h h1 w1 h2 w2', h2 = dim, h1 = dim)
-        
+
 
         output_2 = self.head(self.model(inp2))
         # removing the cls token
@@ -340,7 +423,7 @@ class Model(nn.Module):
                 },
                 f'{exp}/checkpoint_best.pth'
             )
-    
+
     def load_model(self, exp,  latest = True):
         if latest:
             ckpt = torch.load(f'{exp}/checkpoint_latest.pth')

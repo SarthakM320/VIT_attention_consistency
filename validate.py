@@ -1,4 +1,4 @@
-from model import LORAModel, Model, LORAModelMod
+from model import LORAModel, Model, LORAModelMod, AdapterModel
 from torch.utils.data import Dataset, DataLoader
 import torch
 from torch import nn 
@@ -9,7 +9,10 @@ import sys
 from tqdm import tqdm 
 from PIL import Image
 import os
+from os.path import join
 import argparse
+import json
+from utils_own import get_results
 
 class dataset(Dataset):
     def __init__(self, df):
@@ -27,7 +30,7 @@ class dataset(Dataset):
 def main(args):
     csv = pd.read_csv('AID_data_val.csv')
     device = args['device']
-    exp_name = 'Experiments_new/'+args['exp_name']
+    exp_name = join(args['folder'], args['exp_name'])
     # exp_name = 'Experiments\Experiments_colab\\baseline_all_three_seed_16'
     # exp_name = 'Experiments\Experiments_colab\lora_all_three_seed_16'
     # exp_name = 'Experiments\\baseline_adam_lr0.005_imagenet'
@@ -35,7 +38,7 @@ def main(args):
     
 
     data = dataset(csv)
-    dataloader = DataLoader(data, shuffle = True, batch_size=32)
+    dataloader = DataLoader(data, shuffle = True, batch_size=256)
     
     if args['model_type'] == 'base_imagenet':
         model = Model()
@@ -43,6 +46,8 @@ def main(args):
         model = LORAModel()
     elif args['model_type'] == 'lora_mod':
         model = LORAModelMod()
+    elif args['model_type'] == 'adapter':
+        model = AdapterModel().to(device)
     
 
     epoch = model.load_model(exp_name, latest = False)
@@ -52,27 +57,58 @@ def main(args):
 
     correct = 0
     total = 0
+    all_labels = []
+    preds = []
     with torch.no_grad():
-        for idx,data in enumerate(tqdm(dataloader)):
-            image, label = data
-            image = image.cuda()
-            label = label.cuda()
+        num_runs = 5
+        running_precision = running_recall = running_f1 = running_acc = 0
+        for i in range(num_runs):
+            for idx,data in enumerate(tqdm(dataloader)):
+                image, label = data
+                image = image.cuda()
+                label = label.cuda()
+                _,predictions,_,_ = model(image,torch.zeros_like(image))
+                total += len(label)
+                correct += sum(predictions.softmax(dim = -1).argmax(dim = -1) == label)
+                all_labels.append(label)
+                preds.append(predictions)
 
-            _,predictions,_,_ = model(image,torch.zeros_like(image))
-            predictions = predictions.softmax(dim = -1).argmax(dim = -1)
-            total += len(label)
-            correct += sum(predictions == label)
+            print('Accuracy: ', (correct/total).item()*100)
 
-    print('Accuracy: ', (correct/total).item()*100)
+            precision, recall, f1, acc = get_results(torch.cat(preds), torch.cat(all_labels),verbose = False)
+            running_precision += precision
+            running_recall += recall
+            running_f1 += f1
+            running_acc += acc
+
+    return {'Precision':running_precision/num_runs, 'Recall':running_recall/num_runs,'F1 Score':running_f1/num_runs,'Accuracy':running_acc/num_runs}
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Argument Parser for your script")
-    parser.add_argument('--model_type', choices=['base_imagenet', 'lora', 'lora_mod'], help='Model type', default = 'base_imagenet')
-    parser.add_argument('--exp_name', type=str, required=True, help='Experiment name')
+    parser.add_argument('--model_type', choices=['base_imagenet', 'lora', 'lora_mod', 'adapter'], help='Model type', default = 'base_imagenet')
+    parser.add_argument('--exp_name', type=str, help='Experiment name')
     parser.add_argument('--device', type=str, default='cuda', help='Device (e.g., cuda or cpu)')
     parser.add_argument('--seed', type=int, default=16, help='Random seed')
+    parser.add_argument('--all', action='store_true', default=False)
+    parser.add_argument('--folder', type=str, default='Experiments_new')
+    
     args = vars(parser.parse_args())
-    main(args)
+    if not args['all']:
+        main(args)
+    else:
+        all_results = {}
+        for exp in os.listdir(args['folder']):
+            if os.path.isdir(join(args['folder'],exp)):
+                dic = json.load(open(join(args['folder'],exp,'params.json'), 'r'))
+                dic['folder'] = args['folder']
+                all_results[exp] = main(dic)
+        
+        
+        all_results_sorted = dict(sorted(all_results.items(), key=lambda x: x[1]['Accuracy'],reverse = True))
+        with open(f'{args["folder"]}/validation_results.json', 'w') as f:
+            json.dump(all_results_sorted, f)
+
+
 
 
     

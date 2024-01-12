@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import numpy as np
 import random
-from model import Model, LORAModel, LORAModelMod
+from model import Model, LORAModel, LORAModelMod, AdapterModel
 from utils_own import horizontal_flip, horizontal_flip_target, vertical_flip, vertical_flip_target, flip, get_results, set_seed
 from data import train_dataset, val_dataset, triplet_dataset
 import torch.nn.functional as F
@@ -24,7 +24,7 @@ def main(args):
     seed = args['seed']
     set_seed(seed)
     # exp = 'Experiments/baseline_adam_lr0.005_dino_imagenet'
-    exp='Experiments_new/'+args['exp_name']
+    exp=f'{args["folder"]}/'+args['exp_name']
 
     writer = SummaryWriter(exp)
     with open(f'{exp}/params.json', 'w') as f:
@@ -40,19 +40,32 @@ def main(args):
         
 
 
+    if args['dataset'] == 'AID':
+        num_classes = 30
+    elif args["dataset"] == 'PatternNet':
+        num_classes = 38
+    elif args["dataset"] == 'EuroSat':
+        num_classes = 10
+    elif args['dataset'] == 'UCMerced_LandUse':
+        num_classes = 21
+    
+        
     if args['model_type'] == 'base_imagenet':
-        model = Model().to(device)
+        model = Model(num_classes = num_classes).to(device)
     elif args['model_type'] == 'lora':
-        model = LORAModel().to(device)
+        model = LORAModel(num_classes = num_classes).to(device)
     elif args['model_type'] == 'lora_mod':
-        model = LORAModelMod().to(device)
+        model = LORAModelMod(num_classes = num_classes).to(device)
+    elif args['model_type'] == 'adapter':
+        model = AdapterModel(num_classes = num_classes).to(device)
 
+    
     if args['use_triplet_loss']:
-        train_data = triplet_dataset()
-        val_data = triplet_dataset(csv_path='AID_data_triplet_val.csv')
+        train_data = triplet_dataset(csv_path=f'Datasets/{args["dataset"]}_triplet_train.csv')
+        val_data = triplet_dataset(csv_path=f'Datasets/{args["dataset"]}_triplet_val.csv')
     else:
-        train_data = train_dataset()
-        val_data = val_dataset()
+        train_data = train_dataset(csv_path=f'Datasets/{args["dataset"]}_train.csv')
+        val_data = val_dataset(csv_path=f'Datasets/{args["dataset"]}_val.csv')
 
 
     train_dataloader = DataLoader(train_data, batch_size = 32, shuffle = True)
@@ -254,7 +267,7 @@ if __name__ == "__main__":
 
 
     # Choice parameter for model_type
-    parser.add_argument('--model_type', choices=['base_imagenet', 'lora', 'lora_mod'], help='Model type', default = 'base_imagenet')
+    parser.add_argument('--model_type', choices=['base_imagenet', 'lora', 'lora_mod', 'adapter'], help='Model type', default = 'base_imagenet')
 
     # Additional parameters
     parser.add_argument('--exp_name', type=str, required=True, help='Experiment name')
@@ -265,6 +278,8 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=0.005, help='Learning rate')
     parser.add_argument('--attn_loss_weight', type=int, default=10000, help='Attention loss weight')
     parser.add_argument('--triplet_loss_weight', type=int, default=10, help='Triplet loss weight')
+    parser.add_argument('--dataset', choices=['AID', 'PatternNet'], default = 'PatternNet')
+    parser.add_argument('--folder', default='Experiments_PatternNet')
 
 
     args = parser.parse_args()
