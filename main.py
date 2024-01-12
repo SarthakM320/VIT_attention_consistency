@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import numpy as np
 import random
-from model import Model, LORAModel, LORAModelMod, AdapterModel
+from model import Model, LORAModel, LORAModelMod, AdapterModel, VPTModel, VPTLORAModel
 from utils_own import horizontal_flip, horizontal_flip_target, vertical_flip, vertical_flip_target, flip, get_results, set_seed
 from data import train_dataset, val_dataset, triplet_dataset
 import torch.nn.functional as F
@@ -15,11 +15,18 @@ from torch.utils.tensorboard import SummaryWriter
 import numpy as np 
 import random
 import argparse
+from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed import init_process_group, destroy_process_group
+import os
 
-
-
+def ddp_setup():
+    init_process_group(backend="nccl")
+    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
 
 def main(args):
+    ddp_setup()
+    gpu_id = int(os.environ["LOCAL_RANK"])
     args = vars(args)
     seed = args['seed']
     set_seed(seed)
@@ -30,7 +37,7 @@ def main(args):
     with open(f'{exp}/params.json', 'w') as f:
         json.dump(args, f)
     num_epochs = args['num_epochs']
-    device = args['device']
+    device = args['device'] + f':{gpu_id}'
     # trial_4 was changing the attention weights also with attention loss
     # trial 5 was not changing the attention weights with attention loss with a loss weight of 10^3
     # trial 6 was changing only the qkv values in attention blocks with attention loss with a loss weight of 10^3
@@ -58,6 +65,11 @@ def main(args):
         model = LORAModelMod(num_classes = num_classes).to(device)
     elif args['model_type'] == 'adapter':
         model = AdapterModel(num_classes = num_classes).to(device)
+    elif args['model_type'] == 'vpt':
+        model = VPTModel(num_classes = num_classes).to(device)
+    elif args['model_type'] == 'vptlora':
+        model = VPTLORAModel(num_tokens = args['num_tokens'],num_classes=num_classes).to(device)
+
 
     
     if args['use_triplet_loss']:
@@ -68,7 +80,7 @@ def main(args):
         val_data = val_dataset(csv_path=f'Datasets/{args["dataset"]}_val.csv')
 
 
-    train_dataloader = DataLoader(train_data, batch_size = 32, shuffle = True)
+    train_dataloader = DataLoader(train_data, batch_size = 32, shuffle = True,sampler=DistributedSampler(train_data))
     val_dataloader = DataLoader(val_data, batch_size = 32, shuffle = True)
 
     loss_output_fn = nn.CrossEntropyLoss()
@@ -82,7 +94,8 @@ def main(args):
     resume_epochs = 0
     max_val_acc = 0
 
-    if args['resume']:
+
+    if args['resume'] and gpu_id == 0:
         resume_epochs = model.load_model(f'{exp}')
         model = model.to(device)
         
@@ -184,71 +197,72 @@ def main(args):
         overall_output_2 = []
         overall_labels = []   
         
-        model.eval()
-        for idx, input_data in enumerate(tqdm(val_dataloader)):
-            with torch.no_grad():
-                if args['use_triplet_loss']:
-                    anc, image_2, labels, type, pos, neg = input_data
-                else:
-                    anc, image_2, labels, type = input_data
-                anc = anc.to(device)
-                image_2 = image_2.to(device)
-                labels = labels.to(device)
-                b = len(labels)
+        if gpu_id == 0:
+            model.eval()
+            for idx, input_data in enumerate(tqdm(val_dataloader)):
+                with torch.no_grad():
+                    if args['use_triplet_loss']:
+                        anc, image_2, labels, type, pos, neg = input_data
+                    else:
+                        anc, image_2, labels, type = input_data
+                    anc = anc.to(device)
+                    image_2 = image_2.to(device)
+                    labels = labels.to(device)
+                    b = len(labels)
 
-                if args['use_triplet_loss']:
-                    pos = pos.to(device)
-                    neg = neg.to(device)
+                    if args['use_triplet_loss']:
+                        pos = pos.to(device)
+                        neg = neg.to(device)
 
-                self_attn_1, output_1, self_attn_2, output_2 = model(anc, image_2)
+                    self_attn_1, output_1, self_attn_2, output_2 = model(anc, image_2)
 
-                frames = []
-                for i in range(b):
-                    frames.append(flip(self_attn_1[i],type[i]).unsqueeze(0))
+                    frames = []
+                    for i in range(b):
+                        frames.append(flip(self_attn_1[i],type[i]).unsqueeze(0))
 
-                self_attn_1 = torch.cat(frames)
-                
-                loss_out = (loss_output_fn(output_1, labels) + loss_output_fn(output_2, labels)) # TODO try weighted cross entropy also
+                    self_attn_1 = torch.cat(frames)
+                    
+                    loss_out = (loss_output_fn(output_1, labels) + loss_output_fn(output_2, labels)) # TODO try weighted cross entropy also
 
-                loss_att = loss_attn_fn(self_attn_1, self_attn_2)*args['attn_loss_weight'] 
+                    loss_att = loss_attn_fn(self_attn_1, self_attn_2)*args['attn_loss_weight'] 
 
-                if args['use_triplet_loss']:
-                    anc_features, pos_features, neg_features = model.triplet_forward(anc, pos, neg)
-                    loss_trip = loss_triplet_fn(anc_features, pos_features, neg_features)*args['triplet_loss_weight']
+                    if args['use_triplet_loss']:
+                        anc_features, pos_features, neg_features = model.triplet_forward(anc, pos, neg)
+                        loss_trip = loss_triplet_fn(anc_features, pos_features, neg_features)*args['triplet_loss_weight']
 
-                loss = 0
-                if args['add_cross_entropy']:
-                    loss += loss_out
-                if args['add_attn_loss']:
-                    loss += loss_att
-                if args['add_triplet_loss']:
-                    loss+=loss_trip
+                    loss = 0
+                    if args['add_cross_entropy']:
+                        loss += loss_out
+                    if args['add_attn_loss']:
+                        loss += loss_att
+                    if args['add_triplet_loss']:
+                        loss+=loss_trip
 
-                if step_val%5:
-                    writer.add_scalar('Loss_overall/val', loss.item(), step_val)
-                    writer.add_scalar('Loss_output/val', loss_out.item(), step_val)
-                    writer.add_scalar('Loss_attention/val', loss_att.item(), step_val)
-                if args['use_triplet_loss']:
-                    writer.add_scalar('Loss_triplet/val', loss_trip.item(), step_val)
+                    if step_val%5:
+                        writer.add_scalar('Loss_overall/val', loss.item(), step_val)
+                        writer.add_scalar('Loss_output/val', loss_out.item(), step_val)
+                        writer.add_scalar('Loss_attention/val', loss_att.item(), step_val)
+                    if args['use_triplet_loss']:
+                        writer.add_scalar('Loss_triplet/val', loss_trip.item(), step_val)
 
 
-                step_val+=1
-                overall_output_1.append(output_1)
-                overall_output_2.append(output_2)
-                overall_labels.append(labels)
-                
-       
+                    step_val+=1
+                    overall_output_1.append(output_1)
+                    overall_output_2.append(output_2)
+                    overall_labels.append(labels)
+                    
         
-        print('Metrics')
-        precision, recall, f1, acc = get_results(torch.cat(overall_output_1), torch.cat(overall_labels))
-        writer.add_scalar('Output_1/precision_val', precision, epoch)
-        writer.add_scalar('Output_1/recall_val', recall, epoch)
-        writer.add_scalar('Output_1/f1_val', f1, epoch)
-        writer.add_scalar('Output_1/accuracy_val', acc, epoch)
+            
+            print('Metrics')
+            precision, recall, f1, acc = get_results(torch.cat(overall_output_1), torch.cat(overall_labels))
+            writer.add_scalar('Output_1/precision_val', precision, epoch)
+            writer.add_scalar('Output_1/recall_val', recall, epoch)
+            writer.add_scalar('Output_1/f1_val', f1, epoch)
+            writer.add_scalar('Output_1/accuracy_val', acc, epoch)
 
         
 
-        if acc > max_val_acc:
+        if acc > max_val_acc and gpu_id == 0:
             max_val_acc = acc
             model.save_model(epoch, exp, latest=False)
                  
@@ -267,7 +281,8 @@ if __name__ == "__main__":
 
 
     # Choice parameter for model_type
-    parser.add_argument('--model_type', choices=['base_imagenet', 'lora', 'lora_mod', 'adapter'], help='Model type', default = 'base_imagenet')
+    parser.add_argument('--model_type', choices=['base_imagenet', 'lora', 'lora_mod', 'adapter','vpt','vptlora'], help='Model type', default = 'base_imagenet')
+    parser.add_argument('--num_tokens', type=int, default=2, help='Num tokens for VPT')
 
     # Additional parameters
     parser.add_argument('--exp_name', type=str, required=True, help='Experiment name')
@@ -278,7 +293,7 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=0.005, help='Learning rate')
     parser.add_argument('--attn_loss_weight', type=int, default=10000, help='Attention loss weight')
     parser.add_argument('--triplet_loss_weight', type=int, default=10, help='Triplet loss weight')
-    parser.add_argument('--dataset', choices=['AID', 'PatternNet'], default = 'PatternNet')
+    parser.add_argument('--dataset', choices=['AID', 'PatternNet','EuroSat','UCMerced_LandUse'], default = 'PatternNet')
     parser.add_argument('--folder', default='Experiments_PatternNet')
 
 
