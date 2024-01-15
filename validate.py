@@ -1,4 +1,4 @@
-from model import LORAModel, Model, LORAModelMod, AdapterModel
+from model import LORAModel, Model, LORAModelMod, AdapterModel, VPTModel, VPTLORAModel
 from torch.utils.data import Dataset, DataLoader
 import torch
 from torch import nn 
@@ -19,7 +19,7 @@ class dataset(Dataset):
         self.images = df['image'].values
         self.labels = df['label'].values
         self.transform = transforms.Compose([
-            transforms.Resize(224),
+            transforms.Resize((224,224)),
             transforms.ToTensor()
         ])
     def __len__(self):
@@ -28,7 +28,7 @@ class dataset(Dataset):
         return self.transform(Image.open(self.images[idx])), self.labels[idx]
 
 def main(args):
-    csv = pd.read_csv('AID_data_val.csv')
+    csv = pd.read_csv(f'Datasets/{args["dataset"]}_val.csv')
     device = args['device']
     exp_name = join(args['folder'], args['exp_name'])
     # exp_name = 'Experiments\Experiments_colab\\baseline_all_three_seed_16'
@@ -38,16 +38,29 @@ def main(args):
     
 
     data = dataset(csv)
-    dataloader = DataLoader(data, shuffle = True, batch_size=256)
+    dataloader = DataLoader(data, shuffle = True, batch_size=64)
+
+    if args['dataset'] == 'AID':
+        num_classes = 30
+    elif args["dataset"] == 'PatternNet':
+        num_classes = 38
+    elif args["dataset"] == 'EuroSat':
+        num_classes = 10
+    elif args['dataset'] == 'UCMerced_LandUse':
+        num_classes = 21
     
     if args['model_type'] == 'base_imagenet':
-        model = Model()
+        model = Model(num_classes = num_classes).to(device)
     elif args['model_type'] == 'lora':
-        model = LORAModel()
+        model = LORAModel(num_classes = num_classes).to(device)
     elif args['model_type'] == 'lora_mod':
-        model = LORAModelMod()
+        model = LORAModelMod(num_classes = num_classes).to(device)
     elif args['model_type'] == 'adapter':
-        model = AdapterModel().to(device)
+        model = AdapterModel(num_classes = num_classes).to(device)
+    elif args['model_type'] == 'vpt':
+        model = VPTModel(num_classes = num_classes).to(device)
+    elif args['model_type'] == 'vptlora':
+        model = VPTLORAModel(num_tokens = args['num_tokens'],num_classes=num_classes).to(device)
     
 
     epoch = model.load_model(exp_name, latest = False)
@@ -60,7 +73,7 @@ def main(args):
     all_labels = []
     preds = []
     with torch.no_grad():
-        num_runs = 5
+        num_runs = 1
         running_precision = running_recall = running_f1 = running_acc = 0
         for i in range(num_runs):
             for idx,data in enumerate(tqdm(dataloader)):
@@ -90,7 +103,8 @@ if __name__ == "__main__":
     parser.add_argument('--device', type=str, default='cuda', help='Device (e.g., cuda or cpu)')
     parser.add_argument('--seed', type=int, default=16, help='Random seed')
     parser.add_argument('--all', action='store_true', default=False)
-    parser.add_argument('--folder', type=str, default='Experiments_new')
+    parser.add_argument('--folder', type=str, default='Experiments_all/Experiments_AID')
+    parser.add_argument('--dataset', choices=['AID', 'PatternNet','EuroSat','UCMerced_LandUse'], default = 'AID')
     
     args = vars(parser.parse_args())
     if not args['all']:
@@ -101,6 +115,7 @@ if __name__ == "__main__":
             if os.path.isdir(join(args['folder'],exp)):
                 dic = json.load(open(join(args['folder'],exp,'params.json'), 'r'))
                 dic['folder'] = args['folder']
+                dic['dataset'] = args['dataset']
                 all_results[exp] = main(dic)
         
         

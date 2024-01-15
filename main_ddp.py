@@ -1,3 +1,4 @@
+import builtins
 import torch
 from torch import nn
 import numpy as np
@@ -20,10 +21,13 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 import os
 
-
+def ddp_setup():
+    init_process_group(backend="nccl")
+    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
 
 def main(args):
-    gpu_id = 0
+    ddp_setup()
+    gpu_id = int(os.environ["LOCAL_RANK"])
     args = vars(args)
     seed = args['seed']
     set_seed(seed)
@@ -67,7 +71,7 @@ def main(args):
     elif args['model_type'] == 'vptlora':
         model = VPTLORAModel(num_tokens = args['num_tokens'],num_classes=num_classes).to(device)
 
-    
+    model = DDP(model, device_ids=[gpu_id])
 
     
     if args['use_triplet_loss']:
@@ -78,8 +82,8 @@ def main(args):
         val_data = val_dataset(csv_path=f'Datasets/{args["dataset"]}_val.csv')
 
 
-    train_dataloader = DataLoader(train_data, batch_size = 32, shuffle = True)
-    val_dataloader = DataLoader(val_data, batch_size = 32, shuffle = True)
+    train_dataloader = DataLoader(train_data, batch_size = 32, shuffle = False,sampler=DistributedSampler(train_data))
+    val_dataloader = DataLoader(val_data, batch_size = 32, shuffle = False)
 
     loss_output_fn = nn.CrossEntropyLoss()
     loss_attn_fn = nn.MSELoss()
@@ -103,7 +107,7 @@ def main(args):
         print(f'EPOCH {epoch}')
         print()
 
-        
+        train_dataloader.sampler.set_epoch(epoch)
         
 
         running_train_correct = 0
@@ -152,9 +156,6 @@ def main(args):
             
             optim.zero_grad()
             loss.backward()
-            # for name, param in model.named_parameters():
-            #     if param.grad is None:
-            #         print(name)
             optim.step()
 
             # overall_output_1.append(output_1)

@@ -335,9 +335,9 @@ class AdapterModel(Adapter_ViT):
 
     def load_model(self, exp,  latest = True):
         if latest:
-            ckpt = torch.load(f'{exp}/checkpoint_latest.pth')
+            ckpt = torch.load(f'{exp}/checkpoint_latest.pth', map_location='cpu')
         else:
-            ckpt = torch.load(f'{exp}/checkpoint_best.pth')
+            ckpt = torch.load(f'{exp}/checkpoint_best.pth', map_location='cpu')
 
         self.adapter.load_state_dict(ckpt['head'])
         return ckpt['epoch']
@@ -424,9 +424,9 @@ class Model(nn.Module):
 
     def load_model(self, exp,  latest = True):
         if latest:
-            ckpt = torch.load(f'{exp}/checkpoint_latest.pth')
+            ckpt = torch.load(f'{exp}/checkpoint_latest.pth', map_location='cpu')
         else:
-            ckpt = torch.load(f'{exp}/checkpoint_best.pth')
+            ckpt = torch.load(f'{exp}/checkpoint_best.pth', map_location='cpu')
 
         self.model.load_state_dict(ckpt['model'])
         self.head.load_state_dict(ckpt['head'])
@@ -510,9 +510,9 @@ class VPTModel(nn.Module):
 
     def load_model(self, exp,  latest = True):
         if latest:
-            ckpt = torch.load(f'{exp}/checkpoint_latest.pth')
+            ckpt = torch.load(f'{exp}/checkpoint_latest.pth', map_location='cpu')
         else:
-            ckpt = torch.load(f'{exp}/checkpoint_best.pth')
+            ckpt = torch.load(f'{exp}/checkpoint_best.pth', map_location='cpu')
 
         self.model.load_state_dict(ckpt['model'])
         self.head.load_state_dict(ckpt['head'])
